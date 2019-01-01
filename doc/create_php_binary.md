@@ -14,3 +14,8 @@
     (Replace `{ipaddress}` with the IP address of your EC2 instance)
 
 3. Shutdown the EC2 instance
+
+
+(Full details in [AWS Lambda Custom Runtime for PHP: A Practical Example][1])
+
+[1]: https://aws.amazon.com/blogs/apn/aws-lambda-custom-runtime-for-php-a-practical-example/
