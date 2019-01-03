@@ -3,7 +3,7 @@
 # FROM https://aws.amazon.com/blogs/apn/aws-lambda-custom-runtime-for-php-a-practical-example/
 
 PHP_VERSION=$1
-if [ -z "$PHP_VERSION" ]
+if [ -z "$PHP_VERSION" ]; then
     echo "Usage: compile_php.sh <PHP version>"
     exit 1
 fi
