@@ -6,7 +6,6 @@
  *
  * RKA Changes:
  *     - JSON encode result of handler function
- *     - Write stdout to error log
  *     - Catch any Throwables and write to error log
  */
 
@@ -216,20 +215,12 @@ while (true) {
 
     try {
         //Handler is of format Filename.function
-        //Capture stdout
-        ob_start();
-
         //Execute handler
         $functionReturn = $handlerFunction($eventPayload);
         $json = json_encode($functionReturn, true);
         $lambdaRuntime->addToResponse($json);
     } catch (\Throwable $e) {
         error_log((string)$e);
-    } finally {
-        $out = ob_get_clean();
-        if ($out) {
-            error_log($out);
-        }
     }
 
     //Report result
