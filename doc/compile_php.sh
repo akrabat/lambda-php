@@ -22,7 +22,7 @@ cd ~
 # Download the PHP 7.3.0 source
 mkdir ~/php-7-bin
 curl -sL https://github.com/php/php-src/archive/php-${PHP_VERSION}.tar.gz | tar -xvz
-cd php-src-php-7.3.0
+cd php-src-php-${PHP_VERSION}
 
 # Compile PHP 7.3.0 with OpenSSL 1.0.1 support, and install to /home/ec2-user/php-7-bin
 ./buildconf --force
