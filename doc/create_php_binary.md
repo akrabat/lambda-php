@@ -7,7 +7,7 @@
     
         $ export AWS_IP=ec2-user@{ipaddress}
         $ export SSH_KEY_FILE=~/.ssh/aws-key.rsa
-        $ scp -i $SSH_KEY_FILE compile_php.sh $AWS_IP:doc/compile_php.sh
+        $ scp -i $SSH_KEY_FILE doc/compile_php.sh $AWS_IP:compile_php.sh
         $ ssh -i $SSH_KEY_FILE -t $AWS_IP "chmod a+x compile_php.sh && ./compile_php.sh 7.3.0"
         $ scp -i $SSH_KEY_FILE $AWS_IP:php-7-bin/bin/php layer/php/php
 
