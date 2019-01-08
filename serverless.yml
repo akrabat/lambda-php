@@ -20,7 +20,7 @@ service: lambda-php
 provider:
   name: aws
   runtime: provided
-  region: us-west-2
+  region: eu-west-2
   memorySize: 128
 
 #  stage: dev
