@@ -1,0 +1,17 @@
+# Serverless Framework configuration files
+#
+# docs: https://serverless.com/framework/docs/
+
+service: lambda-php
+
+provider:
+  name: aws
+  runtime: provided
+  region: eu-west-2
+  memorySize: 128
+
+functions:
+  hello:
+    handler: handler.hello    # {file name}.{function name}. In this case: hello() in handler.php
+    layers:
+      ${file(../php-runtime/output/layers.json)}

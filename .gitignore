@@ -1,5 +1,5 @@
 # Serverless directories
 .serverless
 
-# PHP binary
-layer/php/php
+# PHP layer
+php-runtime/output

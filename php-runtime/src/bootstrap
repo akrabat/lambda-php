@@ -1,0 +1,203 @@
+#!/opt/bin/php -c/opt/php.ini
+<?php
+// see https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html
+
+$requestId = null;
+
+// Register a shutdown function so that we can fail gracefully when a fatal error occurs
+register_shutdown_function(function () use ($context) {
+    $requestId = $context->requestId;
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR])) {
+        $msg = "ERROR! {$error['message']} in {$error['file']} on line {$error['line']}";
+        error_log($msg);
+        _sendErrorToLambda($requestId, $msg, 'GeneralError');
+    }
+});
+
+require __DIR__ . '/Context.php';
+
+// Obtain the function name from the _HANDLER environment variable and ensure the function's code is available.
+$function = _resolveHandler($_ENV['_HANDLER'], $_ENV['LAMBDA_TASK_ROOT']);
+
+// Lambda request processing loop
+while (true) {
+    // get event data
+    list($context, $eventData)  = _getNextRequestFromLambda();
+    if (!$context) {
+        continue;
+    }
+
+    // Execute the function
+    $result = $function($eventData, $context);
+
+    // Send the response
+    _sendResponseToLambda($context->awsRequestID, $result);
+}
+
+function _resolveHandler($handler, $directory)
+{
+    $file = 'index.php';
+    if (stripos($handler, '.') === false) {
+        $function = $handler;
+    } else {
+        $parts = explode('.', $_ENV['_HANDLER']);
+        $function = array_pop($parts);
+        $file = implode('.', $parts);
+    }
+
+    // look for file in directory/{file}.php
+    $path = "$directory/$file.php";
+    if (file_exists($path)) {
+        require_once($path);
+        return $function;
+    }
+
+    // look for file in directory/src/{file}.php
+    $path = "$directory/src/$file.php";
+    if (file_exists($path)) {
+        require_once($path);
+        return $function;
+    }
+
+    // look for file in directory/{function}.php
+    $path = "$directory/$file.php";
+    if (file_exists($path)) {
+        require_once($path);
+        return $function;
+    }
+
+    // look for file in directory/src/{function}.php
+    $path = "$directory/src/$file.php";
+    if (file_exists($path)) {
+        require_once($path);
+        return $function;
+    }
+    error_log("ERROR: Could not find a function for handler '$handler'.");
+    _sendInitErrorToLambda('Failed to load function.', 'InvalidFunctionException');
+}
+
+function _getNextRequestFromLambda()
+{
+    list($status, $headers, $body) = _sendToLambda('invocation/next', 'GET');
+    if ($status >= 400 && $status < 500) {
+        // client error
+        return [null, null];
+    }
+    if ($status >= 500) {
+        // server error
+        return [null, null];
+    }
+
+    $context = new Context();
+    $context->functionName = $_ENV['AWS_LAMBDA_FUNCTION_NAME'] ?? null;
+    $context->functionVersion = $_ENV['AWS_LAMBDA_FUNCTION_VERSION'] ?? null;
+    $context->invokedFunctionArn = $headers['lambda-runtime-invoked-function-arn'] ?? null;
+    $context->memoryLimitInMb = $_ENV['AWS_LAMBDA_FUNCTION_MEMORY_SIZE'] ?? null;
+    $context->awsRequestID = $headers['lambda-runtime-aws-request-id'] ?? null;
+    $context->logGroupName = $_ENV['AWS_LAMBDA_LOG_GROUP_NAME'] ?? null;
+    $context->logStreamName = $_ENV['AWS_LAMBDA_LOG_STREAM_NAME'] ?? null;
+    $context->deadlineMs = $headers['lambda-runtime-deadline-ms'] ?? null;
+    $context->identity = $headers['lambda-runtime-client-context'] ?? null;
+    $context->clientContext = $headers['lambda-runtime-cognito-identity'] ?? null;
+    $context->awsRegion = $_ENV['AWS_REGION'] ?? null;
+    $context->awsTraceId = $headers['Lambda-Runtime-Trace-Id'] ?? null;
+
+    return [
+        $context,
+        json_decode($body, true)
+    ];
+}
+
+function _sendResponseToLambda($requestId, $response)
+{
+    $body = $response;
+    $contentType = 'text/plain';
+    if (is_array($response)) {
+        $body = json_encode($response);
+        $contentType = 'application/json';
+    }
+    $endpoint = "invocation/$requestId/response";
+
+    list($status, $headers, $result) = _sendToLambda($endpoint, 'POST', $body, $contentType);
+    if ($status >= 400) {
+        error_log("ERROR: Failed to send response. Received status $status");
+        var_dump($headers, $result);
+        exit;
+    }
+}
+
+function _sendErrorToLambda($requestId, $message, $type)
+{
+    $contentType = 'Content-Type: application/json';
+    $body = json_encode([
+        'errorMessage' => $message,
+        'errorType' => $type,
+    ]);
+    $endpoint = "invocation/$requestId/error";
+    _sendToLambda($endpoint, 'POST', $body, $contentType);
+}
+
+function _sendInitErrorToLambda($message, $type)
+{
+    $contentType = 'Content-Type: application/json';
+    $body = json_encode([
+        'errorMessage' => $message,
+        'errorType' => $type,
+    ]);
+
+    _sendToLambda('init/error', 'POST', $body, $contentType);
+    error_log("INIT ERROR: $message ($type)");
+    exit(-1);
+}
+
+function _sendToLambda(string $urlPath, string $method, string $body = '', string $contentType = 'text/plain')
+{
+    $url = 'http://' . $_ENV['AWS_LAMBDA_RUNTIME_API'] . '/2018-06-01/runtime/' . $urlPath;
+
+    $ch = curl_init();
+
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+    // Parse curl headers
+    $headers = [];
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION,
+      function($curl, $header) use (&$headers)
+      {
+        $len = strlen($header);
+        list($name, $value) = explode(':', $header, 2);
+        if (empty($value)) {
+            return $len;
+        }
+
+        $name = strtolower(trim($name));
+        if (array_key_exists($name, $headers) === false) {
+            $headers[$name] = trim($value);
+        } else {
+            if (!is_array($headers[$name])) {
+                $headers[$name] = array($headers[$name]);
+            }
+            $headers[$name][] = trim($value);
+        }
+
+        return $len;
+      }
+    );
+
+    if($method == 'POST') {
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Length: ' . strlen($body),
+            'Content-Type: ' . $contentType,
+        ]);
+    }
+
+    $result = curl_exec($ch);
+
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return [$status, $headers, $result];
+}
